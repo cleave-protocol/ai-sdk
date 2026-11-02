@@ -10,8 +10,8 @@ describe("package", () => {
 		expect(readme).toContain(`from '${pkg.name}'`);
 	});
 
-	it("has no runtime dependencies beyond the ai and zod peers", () => {
-		expect(pkg.dependencies).toBeUndefined();
+	it("has one exact-pinned runtime dependency beside the ai and zod peers", () => {
+		expect(pkg.dependencies).toEqual({ "@noble/hashes": "1.8.0" });
 		expect(Object.keys(pkg.peerDependencies).sort()).toEqual(["ai", "zod"]);
 	});
 });

@@ -1,5 +1,7 @@
 import { tool } from "ai";
 import type { Tool } from "ai";
+import { addressRefusal, checkGetGas, checkPlanSwap } from "./checks.js";
+import type { CheckResult } from "./checks.js";
 import { callTool } from "./client.js";
 import type { CleaveResult, CleaveToolsOptions } from "./client.js";
 import { findTokenInput, getGasInput, planSwapInput, trackSwapInput } from "./schemas.js";
@@ -23,6 +25,12 @@ const DESCRIPTIONS = {
 		"Gets native gas (ETH, BNB or POL) on Ethereum, Arbitrum, Base, BNB Chain, Polygon or Optimism for a wallet that holds USDC on Ethereum, Arbitrum, Base, Optimism or Polygon but has no gas to send transactions. Called with the paying chain, the receiving chain, the recipient and a USDC amount, it returns an offer: the fee, the minimum native amount, the deadline, the order and one USDC authorization for the wallet to sign; signing costs no gas. Called again with the offer and the signature, it passes the signed order to Cleave's relayer, which executes it through a contract made for that one order, and returns a requestId for cleave_track_swap. On one chain the recipient gets at least the minimum or nothing moves; from another chain it gets the native coin at the minimum, else USDC on arrival if the arrival swap fails. An order not executed by its deadline is refunded to the refund address, or, if paid from another chain and not filled, refunded hours later. When the wallet already holds some gas, cleave_plan_swap plans a swap to the native coin.",
 } as const;
 
+function checked(body: CleaveResult, check: (body: CleaveResult) => CheckResult): CleaveResult {
+	if (typeof body.error === "object" && body.error !== null && !Array.isArray(body.error)) return body;
+	const result = check(body);
+	return result.ok ? body : addressRefusal(result.message);
+}
+
 const NAMES = " In this package, cleave_plan_swap, cleave_track_swap, cleave_find_token and cleave_get_gas are the tools planSwap, trackSwap, findToken and getGas.";
 const PLAN_SUFFIX = " This package has no connection settings, and the token to receive must be on Cleave's token list. Before any wallet signs, show the user the warnings, recipient, amounts and slippage, and get their confirmation. Do not raise slippage above the default 50 bps without the user's consent.";
 const GAS_SUFFIX = " If a submission fails or times out, the order may still have been accepted: track g:<payChainId>:<orderHash> before signing a new offer.";
@@ -32,7 +40,7 @@ export function planSwap(options: CleaveToolsOptions = {}): Tool<PlanSwapInput, 
 		title: "Plan a swap, bridge or gas top-up",
 		description: DESCRIPTIONS.planSwap + PLAN_SUFFIX + NAMES,
 		inputSchema: planSwapInput,
-		execute: (input, { abortSignal }) => callTool("plan_swap", input, options, abortSignal),
+		execute: async (input, { abortSignal }) => checked(await callTool("plan_swap", input, options, abortSignal), (body) => checkPlanSwap(input, body)),
 	});
 }
 
@@ -60,7 +68,7 @@ export function getGas(options: CleaveToolsOptions = {}): Tool<GetGasInput, Clea
 		description: DESCRIPTIONS.getGas + GAS_SUFFIX + NAMES,
 		inputSchema: getGasInput,
 		needsApproval: options.getGasApproval === false ? false : (input) => input.signature !== undefined,
-		execute: (input, { abortSignal }) => callTool("get_gas", input, options, abortSignal),
+		execute: async (input, { abortSignal }) => checked(await callTool("get_gas", input, options, abortSignal), (body) => checkGetGas(input, body)),
 	});
 }
 

@@ -100,6 +100,48 @@ Field-by-field answers are documented at
   the signed order to Cleave's relayer. That second call has
   `needsApproval` set, so the AI SDK asks for your approval before it runs.
 
+## Address checks
+
+Before a `planSwap` plan or a `getGas` offer reaches the model, the package
+checks it against a per-chain list of contract addresses pinned in this
+package:
+
+- `planSwap`: every call is on the planned chain and from the wallet. The
+  last call goes to a listed contract and function. Any call before it is
+  a plain, limited approve of the sell token to that contract. The last
+  call spends that token and amount, sends only the expected native value,
+  and pays the requested recipient where its calldata names one; refunds
+  go to the wallet.
+- `getGas`: the authorization is a USDC `ReceiveWithAuthorization` from
+  the wallet on the paying chain. The order carries the requested amount,
+  recipient and refund address and the pinned contracts. The order hash
+  and the payment address are recomputed and must match what is signed.
+
+A plan or offer that fails a check is not passed on; the tool returns only
+this:
+
+```json
+{
+  "error": {
+    "code": "address_not_allowed",
+    "message": "P2: the main call's target is not on the allowlist",
+    "retryable": false
+  }
+}
+```
+
+When a swap on arrival goes through the Across handler or Cleave's
+composer, the final recipient is inside the bridge message, which these
+checks do not read.
+
+After Cleave redeploys a contract, plans that use it fail these checks
+until a package update pins the new address.
+
+`checkPlanSwap` and `checkGetGas` are exported for agents that call the
+API directly.
+
+Do not pair these tools with a wallet that signs without a human looking.
+
 ## Gas top-ups
 
 `getGas` takes two calls.

@@ -7,6 +7,10 @@ import { CleaveApiError, cleaveTools, findToken, getGas, planSwap, trackSwap } f
 import type { CleaveToolsOptions } from "../src/index.js";
 
 const WALLET = "0x00000000000000000000000000000000000A11cE";
+const PROBES = (JSON.parse(readFileSync(new URL("./fixtures/vectors.json", import.meta.url), "utf8")) as { vectors: { name: string; request: Record<string, unknown>; response: Record<string, unknown> }[] }).vectors;
+const probe = (name: string) => PROBES.find((v) => v.name === name) as { request: Record<string, unknown>; response: Record<string, unknown> };
+const PLAN = probe("live plan-8453-usdc-wrapped-recipient");
+const GAS = probe("live gas-8453-x56");
 const HASH = `0x${"ab".repeat(32)}`;
 
 type Factory = (options?: CleaveToolsOptions) => { inputSchema: unknown; execute?: (input: never, options: never) => unknown };
@@ -25,8 +29,8 @@ const CASES: Case[] = [
 		name: "planSwap",
 		factory: planSwap as Factory,
 		endpoint: "plan_swap",
-		valid: { fromChainId: 8453, sellToken: "USDC", buyToken: "WETH", amount: "25", wallet: WALLET, recipient: WALLET, maxSlippageBps: 50 },
-		answer: { apiVersion: "1", requestId: "r-1", blocked: false, notices: [], requiresConfirmation: false, calls: [{ chainId: 8453, from: WALLET, to: WALLET, data: "0x", value: "0x0" }] },
+		valid: PLAN.request,
+		answer: PLAN.response,
 		invalid: [
 			["a missing wallet", { fromChainId: 8453, sellToken: "USDC", buyToken: "WETH", amount: "25" }],
 			["a bad address", { fromChainId: 8453, sellToken: "USDC", buyToken: "WETH", amount: "25", wallet: "0x1234" }],
@@ -66,8 +70,8 @@ const CASES: Case[] = [
 		name: "getGas",
 		factory: getGas as Factory,
 		endpoint: "get_gas",
-		valid: { payChainId: 8453, chainId: 42161, recipient: WALLET, amount: "5", wallet: WALLET },
-		answer: { offer: "opaque-offer", payTo: WALLET, fee: "0.3", receive: { minimum: "0.001" }, deadline: 1_800_000_000 },
+		valid: GAS.request,
+		answer: GAS.response,
 		invalid: [
 			["a non-hex signature", { offer: "opaque-offer", signature: "abc", wallet: WALLET }],
 			["an oversized offer", { offer: "x".repeat(4097), signature: "0x01", wallet: WALLET }],

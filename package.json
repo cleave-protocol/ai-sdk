@@ -1,6 +1,6 @@
 {
   "name": "@cleave-protocol/ai-sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Cleave agent tools for the Vercel AI SDK: plan swaps as unsigned calls, track them, find tokens, and order gas top-ups, submitting the gas orders a wallet has signed.",
   "keywords": [
     "ai",
@@ -63,6 +63,9 @@
     "probe": "npm run build && node scripts/probe.mjs",
     "rename": "node scripts/rename.mjs",
     "prepublishOnly": "npm run typecheck && npm test && npm run build && npm run lint"
+  },
+  "dependencies": {
+    "@noble/hashes": "1.8.0"
   },
   "peerDependencies": {
     "ai": "^6.0.0 || ^7.0.0",
