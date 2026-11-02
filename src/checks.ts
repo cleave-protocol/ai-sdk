@@ -3,35 +3,35 @@ import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { ALLOWLIST } from "./allowlist.js";
 import type { GetGasInput, PlanSwapInput } from "./schemas.js";
 
-export type CheckRule = "P1" | "P2" | "P3" | "P4" | "P5" | "P6" | "G1" | "G2" | "G3" | "G4" | "G5";
+export type CheckRule = "P1" | "P2" | "P3" | "P4" | "P5" | "P6" | "G1" | "G2" | "G3" | "G4";
 export type CheckResult = { ok: true } | { ok: false; rule: CheckRule; message: string };
 
 type Body = Record<string, unknown>;
-
-interface TargetEntry {
-	role: string;
-	selectors: Record<string, string>;
-}
 
 interface ChainEntry {
 	usdc: string;
 	usdcDecimals: number;
 	wrappedNative: string;
+	nativeSymbol: string;
+	wrappedSymbol: string;
 	composer: string;
 	gasDeliveryShell: string;
-	gasPay: { routerV3: string; acrossUsdcAdapter: string } | null;
-	targets: Record<string, TargetEntry>;
+	gasPay: { routerV3: string; acrossUsdcAdapter: string; railId: string } | null;
+	targets: Record<string, { role: string; selectors: Record<string, string> }>;
+	lanes: Record<string, Record<string, number>>;
 }
 
 interface Chain {
 	usdc: string;
 	usdcDecimals: number;
 	wrappedNative: string;
+	symbols: Map<string, string>;
 	composer: string;
 	deliveryShell: string;
-	gasPay: { routerV3: string; acrossUsdcAdapter: string } | null;
-	targets: Map<string, Set<string>>;
+	gasPay: { routerV3: string; acrossUsdcAdapter: string; railId: string } | null;
+	targets: Map<string, { role: string; selectors: Set<string> }>;
 	spokePool: string | null;
+	lanes: Map<number, Map<string, bigint>>;
 }
 
 interface Call {
@@ -41,6 +41,10 @@ interface Call {
 }
 
 const low = (a: string): string => a.toLowerCase();
+const NATIVE = low(ALLOWLIST.nativeSentinel);
+const HANDLER = low(ALLOWLIST.acrossHandler);
+const FACTORY = low(ALLOWLIST.gas.factory);
+const FEE_RECIPIENT = low(ALLOWLIST.gas.feeRecipient);
 
 const CHAINS = new Map<number, Chain>(
 	Object.entries(ALLOWLIST.chains as Record<string, ChainEntry>).map(([id, c]) => [
@@ -49,19 +53,23 @@ const CHAINS = new Map<number, Chain>(
 			usdc: low(c.usdc),
 			usdcDecimals: c.usdcDecimals,
 			wrappedNative: low(c.wrappedNative),
+			symbols: new Map([
+				["usdc", low(c.usdc)],
+				[low(c.nativeSymbol), NATIVE],
+				[low(c.wrappedSymbol), low(c.wrappedNative)],
+			]),
 			composer: low(c.composer),
 			deliveryShell: low(c.gasDeliveryShell),
-			gasPay: c.gasPay === null ? null : { routerV3: low(c.gasPay.routerV3), acrossUsdcAdapter: low(c.gasPay.acrossUsdcAdapter) },
-			targets: new Map(Object.entries(c.targets).map(([a, t]) => [low(a), new Set(Object.keys(t.selectors))])),
+			gasPay: c.gasPay === null ? null : { routerV3: low(c.gasPay.routerV3), acrossUsdcAdapter: low(c.gasPay.acrossUsdcAdapter), railId: low(c.gasPay.railId) },
+			targets: new Map(Object.entries(c.targets).map(([a, t]) => [low(a), { role: t.role, selectors: new Set(Object.keys(t.selectors)) }])),
 			spokePool: Object.entries(c.targets).find(([, t]) => t.role === "across_spoke_pool")?.[0].toLowerCase() ?? null,
+			lanes: new Map(Object.entries(c.lanes).map(([to, rails]) => [Number(to), new Map(Object.entries(rails).map(([r, d]) => [low(r), BigInt(d)]))])),
 		},
 	]),
 );
 
-const NATIVE = low(ALLOWLIST.nativeSentinel);
-const HANDLER = low(ALLOWLIST.acrossHandler);
-const FACTORY = low(ALLOWLIST.gas.factory);
 const MAX_UINT = (1n << 256n) - 1n;
+const HALF_UINT = 1n << 255n;
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const HEX_DATA = /^0x(?:[0-9a-fA-F]{2})*$/;
 const HEX_QUANTITY = /^0x[0-9a-fA-F]{1,64}$/;
@@ -80,13 +88,16 @@ const WITHDRAW = "0x2e1a7d4d";
 const SPOKE_DEPOSIT = "0xad5425c6";
 const DEPOSIT_NATIVE = "0x609ea081";
 
-const PULLS: Readonly<Record<string, { token: number; pulled: readonly number[]; amountIn: number }>> = {
-	[SWAP]: { token: 0, pulled: [2], amountIn: 2 },
-	[MEASURED]: { token: 0, pulled: [9], amountIn: 2 },
-	[CROSS]: { token: 0, pulled: [2, 9], amountIn: 2 },
-	[BRIDGE]: { token: 0, pulled: [1], amountIn: 1 },
-	[SPOKE_DEPOSIT]: { token: 2, pulled: [4], amountIn: 4 },
+const SAME_CHAIN = new Set([SWAP, MEASURED, DEPOSIT, WITHDRAW]);
+const PULLS: Readonly<Record<string, { token: number; pulled: readonly number[] }>> = {
+	[SWAP]: { token: 0, pulled: [2] },
+	[MEASURED]: { token: 0, pulled: [9] },
+	[CROSS]: { token: 0, pulled: [2, 9] },
+	[BRIDGE]: { token: 0, pulled: [1] },
+	[SPOKE_DEPOSIT]: { token: 2, pulled: [4] },
 };
+const AMOUNT_IN: Readonly<Record<string, number>> = { [SWAP]: 2, [MEASURED]: 2, [CROSS]: 2, [CROSS_NATIVE]: 2, [BRIDGE]: 1, [SPOKE_DEPOSIT]: 4, [DEPOSIT_NATIVE]: 4, [WITHDRAW]: 0 };
+const MIN_OUT: Readonly<Record<string, readonly number[]>> = { [SWAP]: [3], [MEASURED]: [3, 10], [CROSS]: [3, 16], [CROSS_NATIVE]: [3, 16], [BRIDGE]: [6], [SPOKE_DEPOSIT]: [5], [DEPOSIT_NATIVE]: [6] };
 
 type FieldType = "uint" | "uint8" | "address" | "bytes32";
 
@@ -198,6 +209,13 @@ function units(v: unknown, decimals: number, rule: CheckRule, what: string): big
 	return BigInt(m[1] as string) * 10n ** BigInt(decimals) + BigInt(frac.padEnd(decimals, "0") || "0");
 }
 
+function normalDecimal(v: unknown, rule: CheckRule, what: string): string {
+	const m = typeof v === "string" ? DECIMAL.exec(v) : null;
+	if (m === null) return fail(rule, `${what} is not a decimal amount`);
+	const frac = (m[2] ?? "").replace(/0+$/, "");
+	return `${BigInt(m[1] as string)}${frac === "" ? "" : `.${frac}`}`;
+}
+
 function word(data: string, k: number, rule: CheckRule, what: string): string {
 	const w = data.slice(10 + 64 * k, 74 + 64 * k);
 	return w.length === 64 ? w : fail(rule, `${what} is missing from the calldata`);
@@ -243,14 +261,18 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 
 		at("P2");
 		const chain = CHAINS.get(fromChainId) ?? fail("P2", "the chain is not on the allowlist");
-		const allowed = chain.targets.get(main.to) ?? fail("P2", "the main call's target is not on the allowlist");
-		if (!allowed.has(selector)) fail("P2", "the main call's function is not allowed on its target");
+		const target = chain.targets.get(main.to) ?? fail("P2", "the main call's target is not on the allowlist");
+		if (!target.selectors.has(selector)) fail("P2", "the main call's function is not allowed on its target");
+		if (SAME_CHAIN.has(selector) !== (toChainId === fromChainId)) fail("P2", "the main call does not fit the route");
 
 		at("P3");
 		const send = object(body.send, "P3", "send");
 		if (!sameChain(send.chainId, fromChainId)) fail("P3", "send is on another chain");
 		const token = address(send.token, "P3", "send.token");
-		if (ADDRESS.test(request.sellToken) && low(request.sellToken) !== token) fail("P3", "send.token is not the sell token");
+		const sellToken = request.sellToken;
+		const pinned = ADDRESS.test(sellToken) ? low(sellToken) : (chain.symbols.get(low(sellToken.trim())) ?? null);
+		if (pinned !== null && pinned !== token) fail("P3", "send.token is not the sell token");
+		if (normalDecimal(send.amount, "P3", "send.amount") !== normalDecimal(request.amount, "P3", "amount")) fail("P3", "send.amount is not the requested amount");
 		const native = token === NATIVE;
 		const approves = parsed.slice(0, -1);
 		if (approves.length > 2) fail("P3", "more than two calls come before the main call");
@@ -259,7 +281,7 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 			if (native || a.to !== token) fail("P3", `call ${i} approves another token`);
 			if (wordAddress(a.data, 0, "P3", "spender") !== main.to) fail("P3", `call ${i} approves another spender`);
 			const amount = wordInt(a.data, 1, "P3", "approve amount");
-			if (amount === MAX_UINT) fail("P3", `call ${i} is an unlimited approve`);
+			if (amount >= HALF_UINT) fail("P3", `call ${i} is an unlimited approve`);
 			return amount;
 		});
 		const last = approved[approved.length - 1];
@@ -276,16 +298,22 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 			if (last !== undefined) {
 				const pulled = pulls.pulled.map((k) => wordInt(main.data, k, "P4", "amount")).reduce((a, b) => (a > b ? a : b));
 				if (pulled !== last) fail("P4", "the main call pulls another amount than approved");
-				if (pulled > 2n * wordInt(main.data, pulls.amountIn, "P4", "amountIn")) fail("P4", "the main call pulls more than twice its input");
+				if (pulled > 2n * wordInt(main.data, AMOUNT_IN[selector] as number, "P4", "amountIn")) fail("P4", "the main call pulls more than twice its input");
 			}
 		}
+		const decimals = native || token === chain.wrappedNative ? 18 : token === chain.usdc ? chain.usdcDecimals : null;
+		const inWord = AMOUNT_IN[selector];
+		if (decimals !== null && inWord !== undefined && wordInt(main.data, inWord, "P4", "amountIn") !== units(request.amount, decimals, "P4", "amount")) fail("P4", "the main call sells another amount than requested");
+		for (const k of MIN_OUT[selector] ?? []) if (wordInt(main.data, k, "P4", "minimum") === 0n) fail("P4", "the main call has no minimum");
 
 		at("P5");
 		const fees = body.fees === undefined ? [] : Array.isArray(body.fees) ? (body.fees as unknown[]) : fail("P5", "fees are malformed");
 		let value = native ? units(send.amount, 18, "P5", "send.amount") : 0n;
 		for (const f of fees) {
 			const fee = object(f, "P5", "fee");
-			if (fee.kind === "native_messaging") value += units(fee.amount, 18, "P5", "fee amount");
+			if (fee.kind !== "native_messaging") continue;
+			if (target.role !== "router_v3") fail("P5", "only the router takes a native messaging fee");
+			value += units(fee.amount, 18, "P5", "fee amount");
 		}
 		if (main.value !== value) fail("P5", "the main call sends another native value");
 
@@ -294,6 +322,13 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 		const composer = toChainId === fromChainId ? null : (CHAINS.get(toChainId)?.composer ?? null);
 		const arrives = (a: string) => a === recipient || a === HANDLER || a === composer;
 		const at6 = (k: number, what: string) => wordAddress(main.data, k, "P6", what);
+		const lane = (railWord: number, dstWord: number) => {
+			const dstId = chain.lanes.get(toChainId)?.get(`0x${word(main.data, railWord, "P6", "railId")}`);
+			if (dstId === undefined || wordInt(main.data, dstWord, "P6", "destination") !== dstId) fail("P6", "the transfer goes to another chain");
+		};
+		const destination = (k: number) => {
+			if (wordInt(main.data, k, "P6", "destination") !== BigInt(toChainId)) fail("P6", "the transfer goes to another chain");
+		};
 		switch (selector) {
 			case SWAP:
 			case MEASURED:
@@ -304,19 +339,23 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 				if (at6(5, "source recipient") !== main.to) fail("P6", "the source swap pays out of the router");
 				if (!arrives(at6(14, "recipient"))) fail("P6", "the transfer pays another recipient");
 				if (at6(15, "refund recipient") !== wallet) fail("P6", "refunds go to another address");
+				lane(12, 13);
 				break;
 			case BRIDGE:
 				if (!arrives(at6(4, "recipient"))) fail("P6", "the transfer pays another recipient");
 				if (at6(5, "refund recipient") !== wallet) fail("P6", "refunds go to another address");
+				lane(2, 3);
 				break;
 			case SPOKE_DEPOSIT:
 				if (at6(0, "depositor") !== wallet) fail("P6", "refunds go to another address");
 				if (![recipient, HANDLER].includes(at6(1, "recipient"))) fail("P6", "the transfer pays another recipient");
+				destination(6);
 				break;
 			case DEPOSIT_NATIVE:
 				if (at6(0, "spoke pool") !== chain.spokePool) fail("P6", "the deposit goes to another pool");
 				if (at6(1, "depositor") !== wallet) fail("P6", "refunds go to another address");
 				if (![recipient, HANDLER].includes(at6(2, "recipient"))) fail("P6", "the transfer pays another recipient");
+				destination(7);
 				break;
 			case DEPOSIT:
 			case WITHDRAW:
@@ -343,13 +382,11 @@ function encodeOrder(order: Body, fields: readonly [string, FieldType][]): strin
 		.join("");
 }
 
-export function checkGetGas(request: GetGasInput, body: Record<string, unknown>, phase1PayTo?: string): CheckResult {
+const toDst = (amount: bigint, from: number, to: number): bigint => (to >= from ? amount * 10n ** BigInt(to - from) : amount / 10n ** BigInt(from - to));
+
+export function checkGetGas(request: GetGasInput, body: Record<string, unknown>): CheckResult {
 	return guard((at) => {
-		if (request.offer !== undefined) {
-			at("G5");
-			if (phase1PayTo !== undefined && body.payTo !== undefined && address(body.payTo, "G5", "payTo") !== low(phase1PayTo)) fail("G5", "the order pays another address than the offer");
-			return;
-		}
+		if (request.offer !== undefined) return;
 
 		at("G1");
 		const payChainId = request.payChainId ?? fail("G1", "the request has no pay chain");
@@ -357,7 +394,9 @@ export function checkGetGas(request: GetGasInput, body: Record<string, unknown>,
 		const pay = CHAINS.get(payChainId);
 		const gasPay = pay?.gasPay ?? fail("G1", "the pay chain is not on the allowlist");
 		const usdc = (pay as Chain).usdc;
+		const payDecimals = (pay as Chain).usdcDecimals;
 		const wallet = request.wallet === undefined ? null : address(request.wallet, "G1", "wallet");
+		if (wallet !== null && body.typedData === undefined) fail("G1", "the offer has no authorization to sign");
 		const typed = body.typedData === undefined ? null : object(body.typedData, "G1", "typedData");
 		const message = typed === null ? null : object(typed.message, "G1", "typedData.message");
 		if (typed !== null && message !== null) {
@@ -375,9 +414,10 @@ export function checkGetGas(request: GetGasInput, body: Record<string, unknown>,
 
 		at("G2");
 		const order = object(body.order, "G2", "order");
-		const amount = units(request.amount, (pay as Chain).usdcDecimals, "G2", "amount");
+		const amount = units(request.amount, payDecimals, "G2", "amount");
 		if (integer(order.amount, "G2", "order.amount") !== amount) fail("G2", "the order amount is not the requested amount");
 		if (message !== null && integer(message.value, "G2", "message.value") !== amount) fail("G2", "the authorization moves another amount");
+		if (message !== null && integer(message.validBefore, "G2", "validBefore") > integer(order.deadline, "G2", "order.deadline")) fail("G2", "the authorization outlives the order");
 		if (integer(order.chainId, "G2", "order.chainId") !== BigInt(payChainId)) fail("G2", "the order is on another chain");
 		if (address(order.token, "G2", "order.token") !== usdc) fail("G2", "the order takes another token");
 		const recipient = address(request.recipient, "G2", "recipient");
@@ -385,17 +425,29 @@ export function checkGetGas(request: GetGasInput, body: Record<string, unknown>,
 		const swap = payChainId === chainId;
 		const refundTo = request.refundTo !== undefined ? address(request.refundTo, "G2", "refundTo") : (wallet ?? (swap ? recipient : fail("G2", "the order has no refund address")));
 		if (address(order.refundTo, "G2", "order.refundTo") !== refundTo) fail("G2", "the order refunds another address");
+		const fee = integer(order.fee, "G2", "order.fee");
+		if (fee >= amount) fail("G2", "the fee takes the whole amount");
+		if (fee !== units(object(body.fee, "G2", "fee").usdc, payDecimals, "G2", "fee.usdc")) fail("G2", "the order fee is not the fee shown");
+		const minOut = integer(order.minOut, "G2", "order.minOut");
+		if (minOut === 0n || minOut !== integer(object(body.receive, "G2", "receive").minimumWei, "G2", "receive.minimumWei")) fail("G2", "the order minimum is not the minimum shown");
+		const dst = CHAINS.get(chainId) ?? fail("G2", "the delivery chain is not on the allowlist");
+		if (!swap) {
+			const relayFee = integer(order.relayFee, "G2", "order.relayFee");
+			if (relayFee * 2n > amount - fee) fail("G2", "the relay fee is above half the amount");
+			if (integer(order.outputAmount, "G2", "order.outputAmount") !== toDst(amount - fee - relayFee, payDecimals, dst.usdcDecimals)) fail("G2", "the bridged amount is not the amount after fees");
+		}
 
 		at("G3");
 		if (body.kind !== (swap ? "swap" : "cross_chain")) fail("G3", "the order is of another kind");
 		if (body.payChainId !== payChainId || body.chainId !== chainId) fail("G3", "the offer is for other chains");
-		const dst = CHAINS.get(chainId) ?? fail("G3", "the delivery chain is not on the allowlist");
 		const spec = swap ? ALLOWLIST.gas.swap : ALLOWLIST.gas.cross_chain;
 		if (address(body.factory, "G3", "factory") !== FACTORY) fail("G3", "the factory is not the pinned one");
 		if (address(body.template, "G3", "template") !== low(spec.template)) fail("G3", "the template is not the pinned one");
 		const pinned = (name: string, want: string) => {
 			if (address(order[name], "G3", `order.${name}`) !== want) fail("G3", `order.${name} is not the pinned one`);
 		};
+		pinned("feeRecipient", FEE_RECIPIENT);
+		if (integer(order.maxProtocolFeeBps, "G3", "order.maxProtocolFeeBps") !== 0n) fail("G3", "the order allows a protocol fee");
 		if (swap) pinned("shell", dst.deliveryShell);
 		else {
 			pinned("router", gasPay.routerV3);
@@ -404,6 +456,8 @@ export function checkGetGas(request: GetGasInput, body: Record<string, unknown>,
 			pinned("dstToken", dst.usdc);
 			pinned("dstShell", dst.deliveryShell);
 			pinned("dstWrappedNative", dst.wrappedNative);
+			const railId = bytes32(order.railId, "G3", "order.railId");
+			if (railId !== gasPay.railId || (pay as Chain).lanes.get(chainId)?.has(railId) !== true) fail("G3", "order.railId is not the pinned one");
 			if (integer(order.dstChainId, "G3", "order.dstChainId") !== BigInt(chainId)) fail("G3", "the order delivers on another chain");
 			if (integer(order.dstDecimals, "G3", "order.dstDecimals") !== BigInt(dst.usdcDecimals)) fail("G3", "order.dstDecimals is not the pinned one");
 		}
@@ -420,6 +474,54 @@ export function checkGetGas(request: GetGasInput, body: Record<string, unknown>,
 	});
 }
 
+const PLAN_KEYS = ["requestId", "blocked", "requiresConfirmation", "route", "send", "pullsAtMost", "receive", "fees", "notices", "quotedAt", "validUntil", "calls", "next"];
+const CALL_KEYS = ["chainId", "from", "to", "data", "value"];
+const OFFER_KEYS = ["offer", "kind", "payChainId", "chainId", "payTo", "factory", "template", "order", "blob", "hubs", "message", "orderHash", "outcome", "pay", "fee", "receive", "deadline", "refundTo", "typedData", "etaSec", "verify"];
+const SUBMIT_KEYS = ["requestId", "state", "payTo", "deadline"];
+const ERROR_KEYS = ["code", "reason", "message", "detail", "retryable", "retryAfterSec", "suggestion", "notices"];
+const DOMAIN_KEYS = ["name", "version", "chainId", "verifyingContract"];
+const MESSAGE_KEYS = AUTH_FIELDS.map(([name]) => name);
+
+function pick(source: Body, keys: readonly string[]): Body {
+	const out: Body = {};
+	for (const k of keys) if (k in source) out[k] = source[k];
+	return out;
+}
+
+function apiRefusal(body: Body): Body | null {
+	if (!isObject(body.error)) return null;
+	return { ...pick(body, ["apiVersion", "requestId"]), error: pick(body.error, ERROR_KEYS) };
+}
+
 export function addressRefusal(message: string): Record<string, unknown> {
 	return { error: { code: "address_not_allowed", message, retryable: false } };
+}
+
+export function screenPlanSwap(request: PlanSwapInput, body: Record<string, unknown>): Record<string, unknown> {
+	const refusal = apiRefusal(body);
+	if (refusal !== null) return refusal;
+	const result = checkPlanSwap(request, body);
+	if (!result.ok) return addressRefusal(result.message);
+	const out = pick(body, PLAN_KEYS);
+	out.calls = (body.calls as Body[]).map((c) => pick(c, CALL_KEYS));
+	return out;
+}
+
+export function screenGetGas(request: GetGasInput, body: Record<string, unknown>): Record<string, unknown> {
+	const refusal = apiRefusal(body);
+	if (refusal !== null) return refusal;
+	const result = checkGetGas(request, body);
+	if (!result.ok) return addressRefusal(result.message);
+	if (request.offer !== undefined) return pick(body, SUBMIT_KEYS);
+	const out = pick(body, OFFER_KEYS);
+	if (isObject(body.typedData)) {
+		const t = body.typedData;
+		out.typedData = {
+			domain: pick(t.domain as Body, DOMAIN_KEYS),
+			types: { ReceiveWithAuthorization: (t.types as { ReceiveWithAuthorization: Body[] }).ReceiveWithAuthorization.map((f) => pick(f, ["name", "type"])) },
+			primaryType: t.primaryType,
+			message: pick(t.message as Body, MESSAGE_KEYS),
+		};
+	}
+	return out;
 }

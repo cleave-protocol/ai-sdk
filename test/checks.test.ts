@@ -3,27 +3,32 @@ import { describe, expect, it, vi } from "vitest";
 import { keccak_256 } from "@noble/hashes/sha3";
 import { bytesToHex } from "@noble/hashes/utils";
 import { ALLOWLIST } from "../src/allowlist.js";
+import { screenGetGas, screenPlanSwap } from "../src/checks.js";
 import { checkGetGas, checkPlanSwap, getGas, planSwap } from "../src/index.js";
-import type { CheckResult, GetGasInput, PlanSwapInput } from "../src/index.js";
+import type { GetGasInput, PlanSwapInput } from "../src/index.js";
+
+type Verdict = { result: "pass"; output?: Record<string, unknown> } | { result: "fail"; rule: string };
 
 interface Vector {
 	name: string;
 	tool: "plan_swap" | "get_gas";
 	request: Record<string, unknown>;
 	response: Record<string, unknown>;
-	context?: { phase1PayTo?: string };
-	expect: { result: "pass" } | { result: "fail"; rule: string };
+	expect: Verdict;
 }
 
 const file = JSON.parse(readFileSync(new URL("./fixtures/vectors.json", import.meta.url), "utf8")) as { allowlistVersion: string; vectors: Vector[] };
 const vectors = file.vectors;
 
-function verdict(v: Vector): { result: "pass" } | { result: "fail"; rule: string } {
-	const error = v.response.error;
-	if (typeof error === "object" && error !== null && !Array.isArray(error)) return { result: "pass" };
-	const r: CheckResult = v.tool === "plan_swap" ? checkPlanSwap(v.request as PlanSwapInput, v.response) : checkGetGas(v.request as GetGasInput, v.response, v.context?.phase1PayTo);
-	if (!r.ok) expect(r.message).not.toContain("malformed");
-	return r.ok ? { result: "pass" } : { result: "fail", rule: r.rule };
+function verdict(v: Vector): Verdict {
+	const out = v.tool === "plan_swap" ? screenPlanSwap(v.request as PlanSwapInput, v.response) : screenGetGas(v.request as GetGasInput, v.response);
+	const error = out.error as { code?: unknown; message?: unknown } | undefined;
+	if (error?.code === "address_not_allowed" && typeof error.message === "string") {
+		expect(error.message).not.toContain("malformed");
+		expect(Object.keys(out)).toEqual(["error"]);
+		return { result: "fail", rule: error.message.slice(0, 2) };
+	}
+	return v.expect.result === "pass" && v.expect.output !== undefined ? { result: "pass", output: out } : { result: "pass" };
 }
 
 const keccak = (text: string | Uint8Array) => `0x${bytesToHex(keccak_256(text))}`;
@@ -44,7 +49,7 @@ const SPOKE_DEPOSIT = "deposit(bytes32,bytes32,bytes32,bytes32,uint256,uint256,u
 describe("shared vectors", () => {
 	it("cover every rule, live probes and the pinned table version", () => {
 		const rules = new Set(vectors.flatMap((v) => (v.expect.result === "fail" ? [v.expect.rule] : [])));
-		expect([...rules].sort()).toEqual(["G1", "G2", "G3", "G4", "G5", "P1", "P2", "P3", "P4", "P5", "P6"]);
+		expect([...rules].sort()).toEqual(["G1", "G2", "G3", "G4", "P1", "P2", "P3", "P4", "P5", "P6"]);
 		expect(vectors.filter((v) => v.name.startsWith("live ")).length).toBeGreaterThanOrEqual(30);
 		expect(file.allowlistVersion).toBe(ALLOWLIST.version);
 	});
@@ -71,6 +76,17 @@ describe("pinned allowlist", () => {
 					expect(signature, name).toBeDefined();
 					expect(keccak(signature as string).slice(0, 10)).toBe(selector);
 				}
+			}
+		}
+	});
+
+	it("gives every lane its rails, with the chain id as the Across destination id", () => {
+		for (const [from, chain] of Object.entries(ALLOWLIST.chains)) {
+			const lanes = chain.lanes as Record<string, Record<string, number>>;
+			expect(Object.keys(lanes).sort()).toEqual(Object.keys(ALLOWLIST.chains).filter((id) => id !== from).sort());
+			for (const [to, rails] of Object.entries(lanes)) {
+				for (const id of ["0xf6c86ecb0564cd8d732c9d68c369fbc03a0c351db7419e70be166d26a2ed4916", "0xa28bababc0e2b0c1c28d78d20a75d5ef0afd16dc155828d76a2bf6b97805d328"]) expect(rails[id], `${from}>${to}`).toBe(Number(to));
+				if (chain.gasPay !== null) expect(rails[chain.gasPay.railId]).toBe(Number(to));
 			}
 		}
 	});
@@ -126,9 +142,9 @@ describe("tools", () => {
 		expect(out).toEqual({ error: { code: "address_not_allowed", message: "P2: the main call's target is not on the allowlist", retryable: false } });
 	});
 
-	it("passes an API refusal through without a check", async () => {
-		const refusal = { error: { code: "invalid_param", message: "x", retryable: false }, calls: [{ to: "0x000000000000000000000000000000000000dEaD" }] };
-		expect(await execute(planSwap({ fetch: answering(refusal) }), byName("live plan-8453-same").request)).toEqual(refusal);
+	it("keeps only the error fields of an API refusal", async () => {
+		const refusal = { apiVersion: "1", requestId: "r-9", error: { code: "invalid_param", message: "x", retryable: false }, calls: [{ to: "0x000000000000000000000000000000000000dEaD" }] };
+		expect(await execute(planSwap({ fetch: answering(refusal) }), byName("live plan-8453-same").request)).toEqual({ apiVersion: "1", requestId: "r-9", error: { code: "invalid_param", message: "x", retryable: false } });
 	});
 });
 
@@ -138,7 +154,8 @@ describe("checks", () => {
 	it("fails closed on a malformed body", () => {
 		expect(checkPlanSwap(plan.request as PlanSwapInput, { calls: "nope" })).toMatchObject({ ok: false, rule: "P1" });
 		expect(checkPlanSwap(plan.request as PlanSwapInput, { blocked: false, calls: [] })).toMatchObject({ ok: false, rule: "P1" });
-		expect(checkGetGas(byName("live gas-1-same").request as GetGasInput, {})).toMatchObject({ ok: false, rule: "G2" });
+		expect(checkGetGas(byName("live gas-1-same").request as GetGasInput, {})).toMatchObject({ ok: false, rule: "G1" });
+		expect(checkGetGas({ ...(byName("live gas-1-same").request as GetGasInput), wallet: undefined }, {})).toMatchObject({ ok: false, rule: "G2" });
 	});
 
 	it("passes a blocked plan without calls", () => {

@@ -103,19 +103,21 @@ Field-by-field answers are documented at
 ## Address checks
 
 Before a `planSwap` plan or a `getGas` offer reaches the model, the package
-checks it against a per-chain list of contract addresses pinned in this
-package:
+checks it against per-chain contract addresses, rails and tokens pinned in
+this package:
 
 - `planSwap`: every call is on the planned chain and from the wallet. The
-  last call goes to a listed contract and function. Any call before it is
-  a plain, limited approve of the sell token to that contract. The last
-  call spends that token and amount, sends only the expected native value,
-  and pays the requested recipient where its calldata names one; refunds
-  go to the wallet.
+  last call goes to a listed contract and function that fits the route,
+  sends to the planned chain and pays the requested recipient where its
+  calldata names one; refunds go to the wallet. Any call before it is an
+  approve of the sell token to that contract for exactly what the last
+  call pulls. The amount sold is the requested amount, and the native
+  value is what that amount and the listed native messaging fee need.
 - `getGas`: the authorization is a USDC `ReceiveWithAuthorization` from
   the wallet on the paying chain. The order carries the requested amount,
-  recipient and refund address and the pinned contracts. The order hash
-  and the payment address are recomputed and must match what is signed.
+  recipient and refund address, the pinned contracts, rail and fee
+  recipient, and the fee and amounts the offer shows. The order hash and
+  the payment address are recomputed and must match what is signed.
 
 A plan or offer that fails a check is not passed on; the tool returns only
 this:
@@ -130,9 +132,20 @@ this:
 }
 ```
 
-When a swap on arrival goes through the Across handler or Cleave's
-composer, the final recipient is inside the bridge message, which these
-checks do not read.
+A plan or offer that passes is returned with only its documented fields.
+
+What these checks do not cover:
+
+- The price, the route and the amount received.
+- On routes that swap on arrival or pay a fee through the bridge message,
+  the funds go to the Across handler or Cleave's composer, and that
+  message decides who receives them. These checks do not read it, so a
+  compromised API could redirect those funds. Have a person check such a
+  plan before signing.
+- When `sellToken` is a symbol other than USDC or the chain's native or
+  wrapped native coin, the API resolves it to an address. Check
+  `send.token` before signing.
+- `next` and the notices are text from the API.
 
 After Cleave redeploys a contract, plans that use it fail these checks
 until a package update pins the new address.
@@ -240,8 +253,8 @@ cleaveTools({
 
 ## Errors
 
-A refusal from the API comes back as the tool's result, unchanged, so the
-model can read it:
+A refusal from the API comes back as the tool's result with only its
+`apiVersion`, `requestId` and `error` fields, so the model can read it:
 
 ```json
 {
