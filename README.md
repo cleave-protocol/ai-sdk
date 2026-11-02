@@ -151,13 +151,19 @@ What these checks do not cover:
   does not know its decimals, so the amount in the approve and the
   calldata is not checked against the request. Check the approve amount
   and `pullsAtMost` before signing.
+- The Stargate native messaging fee is the API's figure. The checks only
+  match it with the call's value; nothing bounds it.
 - `next` and the notices are text from the API.
 
 After Cleave redeploys a contract, plans that use it fail these checks
 until a package update pins the new address.
 
-`checkPlanSwap` and `checkGetGas` are exported for agents that call the
-API directly.
+Agents that call the API directly should pass each answer through
+`screenPlanSwap(request, body)` or `screenGetGas(request, body)` and use
+only what they return: the refusal, or the answer cut to its documented
+fields. `checkPlanSwap` and `checkGetGas` return only a verdict; a pass
+from them does not make the original answer safe to forward, since it
+can carry fields the checks do not read.
 
 Do not pair these tools with a wallet that signs without a human looking.
 
@@ -284,7 +290,12 @@ when present, says when.
 
 - a network error, a timeout or an abort: `status` is `0` and `cause`
   holds the original error;
-- an answer that is not JSON: `status` is the HTTP status.
+- a successful answer that is not a JSON object: `status` is the HTTP
+  status.
+
+An error status whose body has no `error` object comes back as the tool's
+result `{ "error": { "code": "http_error", "message": "HTTP 502", "retryable": true } }`,
+with nothing else from the body; `retryable` is true for 5xx and 429.
 
 `requestId` carries the `x-request-id` header when the API sent one.
 

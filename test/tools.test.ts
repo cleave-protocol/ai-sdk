@@ -118,10 +118,14 @@ describe.each(CASES)("$name", (c) => {
 		expect(out).toEqual(refusal);
 	});
 
-	it("throws CleaveApiError when the answer is not JSON", async () => {
-		const err = await run(c, { fetch: mockFetch(502, "<html>Bad gateway</html>") }).catch((e: unknown) => e);
+	it("returns an http_error refusal when an error status has no JSON", async () => {
+		expect(await run(c, { fetch: mockFetch(502, "<html>Bad gateway</html>") })).toEqual({ error: { code: "http_error", message: "HTTP 502", retryable: true } });
+	});
+
+	it("throws CleaveApiError when a successful answer is not JSON", async () => {
+		const err = await run(c, { fetch: mockFetch(200, "<html>ok</html>") }).catch((e: unknown) => e);
 		expect(err).toBeInstanceOf(CleaveApiError);
-		expect((err as CleaveApiError).status).toBe(502);
+		expect((err as CleaveApiError).status).toBe(200);
 	});
 
 	it("accepts the valid input", () => {
@@ -187,8 +191,8 @@ describe("options", () => {
 		expect((err as CleaveApiError).cause).toBe(cause);
 	});
 
-	it("carries x-request-id on an error without a JSON body", async () => {
-		const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response("<html>Bad gateway</html>", { status: 502, headers: { "x-request-id": "req-502" } }));
+	it("carries x-request-id on an answer without a JSON body", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response("<html>ok</html>", { status: 200, headers: { "x-request-id": "req-502" } }));
 		const err = await run(c, { fetch }).catch((e: unknown) => e);
 		expect((err as CleaveApiError).requestId).toBe("req-502");
 	});
@@ -199,8 +203,11 @@ describe("options", () => {
 		expect(schema.properties.chainId.enum).toEqual([1, 10, 56, 137, 8453, 42161]);
 	});
 
-	it("throws when an error status has no error body", async () => {
-		await expect(run(c, { fetch: mockFetch(500, { ok: false }) })).rejects.toBeInstanceOf(CleaveApiError);
+	it("returns an http_error refusal without calls when an error status has no error object", async () => {
+		const refusal = { error: { code: "http_error", message: "HTTP 500", retryable: true } };
+		expect(await run(c, { fetch: mockFetch(500, { ok: false }) })).toEqual(refusal);
+		expect(await run(CASES[0] as Case, { fetch: mockFetch(500, { ...(CASES[0] as Case).answer, error: null }) })).toEqual(refusal);
+		expect(await run(c, { fetch: mockFetch(404, { error: "nope" }) })).toEqual({ error: { code: "http_error", message: "HTTP 404", retryable: false } });
 	});
 
 	it("cleaveTools returns the four tools", () => {

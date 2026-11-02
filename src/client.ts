@@ -35,6 +35,10 @@ function untilAborted(signal: AbortSignal): Promise<never> {
 	});
 }
 
+function httpError(status: number): CleaveResult {
+	return { error: { code: "http_error", message: `HTTP ${status}`, retryable: status >= 500 || status === 429 } };
+}
+
 export async function callTool(endpoint: ToolEndpoint, input: object, options: CleaveToolsOptions, abortSignal?: AbortSignal): Promise<CleaveResult> {
 	const base = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
 	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -59,9 +63,11 @@ export async function callTool(endpoint: ToolEndpoint, input: object, options: C
 	try {
 		body = JSON.parse(text);
 	} catch (err) {
+		if (!response.ok) return httpError(response.status);
 		throw new CleaveApiError(`Cleave API answered HTTP ${response.status} without a JSON body`, response.status, requestId, { cause: err });
 	}
-	if (typeof body !== "object" || body === null || Array.isArray(body)) throw new CleaveApiError(`Cleave API answered HTTP ${response.status} without a JSON object`, response.status, requestId);
-	if (!response.ok && !("error" in body)) throw new CleaveApiError(`Cleave API answered HTTP ${response.status} without an error body`, response.status, requestId);
-	return body as CleaveResult;
+	const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+	if (!response.ok) return isObject(body) && isObject(body.error) ? body : httpError(response.status);
+	if (!isObject(body)) throw new CleaveApiError(`Cleave API answered HTTP ${response.status} without a JSON object`, response.status, requestId);
+	return body;
 }

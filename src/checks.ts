@@ -109,6 +109,8 @@ const PULLS: Readonly<Record<string, { token: number; pulled: readonly number[] 
 const AMOUNT_IN: Readonly<Record<string, number>> = { [SWAP]: 2, [MEASURED]: 2, [CROSS]: 2, [CROSS_NATIVE]: 2, [BRIDGE]: 1, [SPOKE_DEPOSIT]: 4, [DEPOSIT_NATIVE]: 4, [WITHDRAW]: 0 };
 const REFERRAL: Readonly<Record<string, readonly [number, number]>> = { [SWAP]: [6, 7], [MEASURED]: [6, 7], [CROSS]: [6, 7], [CROSS_NATIVE]: [6, 7], [BRIDGE]: [7, 8] };
 const NATIVE_TOKEN: Readonly<Record<string, number>> = { [SWAP]: 0, [MEASURED]: 0, [CROSS]: 0, [CROSS_NATIVE]: 0, [DEPOSIT_NATIVE]: 3 };
+const ERC20_ONLY = new Set([CROSS, BRIDGE, SPOKE_DEPOSIT, WITHDRAW]);
+const WETH_AS_ERC20: Readonly<Record<string, number>> = { [SWAP]: 8, [MEASURED]: 8 };
 const RAIL_WORD: Readonly<Record<string, number>> = { [CROSS]: 12, [CROSS_NATIVE]: 12, [BRIDGE]: 2 };
 const MIN_OUT: Readonly<Record<string, readonly number[]>> = { [SWAP]: [3], [MEASURED]: [3, 10], [CROSS]: [3, 16], [CROSS_NATIVE]: [3, 16], [BRIDGE]: [6], [SPOKE_DEPOSIT]: [5], [DEPOSIT_NATIVE]: [6] };
 
@@ -312,6 +314,10 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 			if (last !== undefined && pulled !== last) fail("P4", "the main call pulls another amount than approved");
 			if (pulled > 2n * wordInt(main.data, AMOUNT_IN[selector] as number, "P4", "amountIn")) fail("P4", "the main call pulls more than twice its input");
 		}
+		if (native && ERC20_ONLY.has(selector)) fail("P4", "a native sell cannot use this function");
+		const mode = WETH_AS_ERC20[selector];
+		if (mode !== undefined && native && wordInt(main.data, mode, "P4", "native mode") !== 0n) fail("P4", "the main call spends the wrapped token, not the native coin");
+		if ((selector === CROSS || selector === CROSS_NATIVE) && wordInt(main.data, 8, "P4", "native mode") !== 1n) fail("P4", "the router swap is not encoded as the backend encodes it");
 		const wrappedWord = NATIVE_TOKEN[selector];
 		if (native && wrappedWord !== undefined && wordAddress(main.data, wrappedWord, "P4", "token") !== chain.wrappedNative) fail("P4", "the main call spends another token");
 		const decimals = native || token === chain.wrappedNative ? 18 : token === chain.usdc ? chain.usdcDecimals : null;
@@ -354,6 +360,13 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 			const dstId = chain.lanes.get(toChainId)?.get(`0x${word(main.data, railWord, "P6", "railId")}`);
 			if (dstId === undefined || wordInt(main.data, dstWord, "P6", "destination") !== dstId) fail("P6", "the transfer goes to another chain");
 		};
+		const dst = CHAINS.get(toChainId);
+		const buyToken = request.buyToken.trim();
+		const out = ADDRESS.test(buyToken) ? low(buyToken) : (dst?.symbols.get(low(buyToken)) ?? null);
+		const outWord = out === null ? null : out === NATIVE ? (dst?.wrappedNative ?? null) : out;
+		const output = (k: number) => {
+			if (outWord !== null && at6(k, "output token") !== outWord) fail("P6", "the main call delivers another token");
+		};
 		const destination = (k: number) => {
 			if (wordInt(main.data, k, "P6", "destination") !== BigInt(toChainId)) fail("P6", "the transfer goes to another chain");
 		};
@@ -361,6 +374,11 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 			case SWAP:
 			case MEASURED:
 				if (at6(5, "recipient") !== recipient) fail("P6", "the swap pays another recipient");
+				output(1);
+				if (!native) {
+					const flag = wordInt(main.data, 8, "P6", "native output");
+					if (out !== null ? flag !== (out === NATIVE ? 0n : 1n) : flag === 0n && at6(1, "output token") !== chain.wrappedNative) fail("P6", "the main call delivers another token");
+				}
 				break;
 			case CROSS:
 			case CROSS_NATIVE:
@@ -378,16 +396,19 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 				if (at6(0, "depositor") !== wallet) fail("P6", "refunds go to another address");
 				if (![recipient, HANDLER].includes(at6(1, "recipient"))) fail("P6", "the transfer pays another recipient");
 				destination(6);
+				output(3);
 				break;
 			case DEPOSIT_NATIVE:
 				if (at6(0, "spoke pool") !== chain.spokePool) fail("P6", "the deposit goes to another pool");
 				if (at6(1, "depositor") !== wallet) fail("P6", "refunds go to another address");
 				if (![recipient, HANDLER].includes(at6(2, "recipient"))) fail("P6", "the transfer pays another recipient");
 				destination(7);
+				output(5);
 				break;
 			case DEPOSIT:
 			case WITHDRAW:
 				if (recipient !== wallet) fail("P6", "wrapping pays the wallet, not the recipient");
+				if (out !== null && out !== (selector === DEPOSIT ? chain.wrappedNative : NATIVE)) fail("P6", "the main call delivers another token");
 				break;
 			default:
 				fail("P6", "the main call has no recipient rule");

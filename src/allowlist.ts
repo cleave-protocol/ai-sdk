@@ -1,5 +1,5 @@
 export const ALLOWLIST = {
-	"version": "2026-11-02.4",
+	"version": "2026-11-02.5",
 	"nativeSentinel": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
 	"acrossHandler": "0x0F7Ae28dE1C8532170AD4ee566B5801485c13a0E",
 	"referral": {
