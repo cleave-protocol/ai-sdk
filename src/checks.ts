@@ -15,6 +15,8 @@ interface ChainEntry {
 	nativeSymbol: string;
 	wrappedSymbol: string;
 	composer: string;
+	houseReferrer: string;
+	stablecoins: readonly string[];
 	gasDeliveryShell: string;
 	gasPay: { routerV3: string; acrossUsdcAdapter: string; railId: string } | null;
 	targets: Record<string, { role: string; selectors: Record<string, string> }>;
@@ -27,6 +29,8 @@ interface Chain {
 	wrappedNative: string;
 	symbols: Map<string, string>;
 	composer: string;
+	houseReferrer: string;
+	stablecoins: Set<string>;
 	deliveryShell: string;
 	gasPay: { routerV3: string; acrossUsdcAdapter: string; railId: string } | null;
 	targets: Map<string, { role: string; selectors: Set<string> }>;
@@ -45,6 +49,7 @@ const NATIVE = low(ALLOWLIST.nativeSentinel);
 const HANDLER = low(ALLOWLIST.acrossHandler);
 const FACTORY = low(ALLOWLIST.gas.factory);
 const FEE_RECIPIENT = low(ALLOWLIST.gas.feeRecipient);
+const ZERO_ADDRESS = `0x${"0".repeat(40)}`;
 
 const CHAINS = new Map<number, Chain>(
 	Object.entries(ALLOWLIST.chains as Record<string, ChainEntry>).map(([id, c]) => [
@@ -59,6 +64,8 @@ const CHAINS = new Map<number, Chain>(
 				[low(c.wrappedSymbol), low(c.wrappedNative)],
 			]),
 			composer: low(c.composer),
+			houseReferrer: low(c.houseReferrer),
+			stablecoins: new Set(c.stablecoins.map(low)),
 			deliveryShell: low(c.gasDeliveryShell),
 			gasPay: c.gasPay === null ? null : { routerV3: low(c.gasPay.routerV3), acrossUsdcAdapter: low(c.gasPay.acrossUsdcAdapter), railId: low(c.gasPay.railId) },
 			targets: new Map(Object.entries(c.targets).map(([a, t]) => [low(a), { role: t.role, selectors: new Set(Object.keys(t.selectors)) }])),
@@ -97,6 +104,7 @@ const PULLS: Readonly<Record<string, { token: number; pulled: readonly number[] 
 	[SPOKE_DEPOSIT]: { token: 2, pulled: [4] },
 };
 const AMOUNT_IN: Readonly<Record<string, number>> = { [SWAP]: 2, [MEASURED]: 2, [CROSS]: 2, [CROSS_NATIVE]: 2, [BRIDGE]: 1, [SPOKE_DEPOSIT]: 4, [DEPOSIT_NATIVE]: 4, [WITHDRAW]: 0 };
+const REFERRAL: Readonly<Record<string, readonly [number, number]>> = { [SWAP]: [6, 7], [MEASURED]: [6, 7], [CROSS]: [6, 7], [CROSS_NATIVE]: [6, 7], [BRIDGE]: [7, 8] };
 const MIN_OUT: Readonly<Record<string, readonly number[]>> = { [SWAP]: [3], [MEASURED]: [3, 10], [CROSS]: [3, 16], [CROSS_NATIVE]: [3, 16], [BRIDGE]: [6], [SPOKE_DEPOSIT]: [5], [DEPOSIT_NATIVE]: [6] };
 
 type FieldType = "uint" | "uint8" | "address" | "bytes32";
@@ -316,6 +324,20 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 			value += units(fee.amount, 18, "P5", "fee amount");
 		}
 		if (main.value !== value) fail("P5", "the main call sends another native value");
+		const referral = REFERRAL[selector];
+		if (referral !== undefined) {
+			const referrer = wordAddress(main.data, referral[0], "P5", "referrer");
+			const bps = wordInt(main.data, referral[1], "P5", "referral fee");
+			const free: [string, bigint] = [ZERO_ADDRESS, BigInt(SAME_CHAIN.has(selector) ? ALLOWLIST.referral.sameChainBps : ALLOWLIST.referral.stablecoinBps)];
+			const house: [string, bigint] = [chain.houseReferrer, BigInt(ALLOWLIST.referral.crossChainBps)];
+			const dst = CHAINS.get(toChainId);
+			const receive = isObject(body.receive) ? body.receive : null;
+			const buyToken = request.buyToken;
+			const tokenOut = typeof receive?.token === "string" && ADDRESS.test(receive.token) ? low(receive.token) : ADDRESS.test(buyToken) ? low(buyToken) : (dst?.symbols.get(low(buyToken.trim())) ?? null);
+			const stableIn = chain.stablecoins.has(token);
+			const allowed = SAME_CHAIN.has(selector) ? [free] : !stableIn ? [house] : tokenOut === null ? [free, house] : [dst?.stablecoins.has(tokenOut) === true ? free : house];
+			if (!allowed.some(([a, b]) => a === referrer && b === bps)) fail("P5", "the referral fee goes to another address or has another size");
+		}
 
 		at("P6");
 		const recipient = request.recipient === undefined ? wallet : address(request.recipient, "P6", "recipient");

@@ -1,7 +1,12 @@
 export const ALLOWLIST = {
-	"version": "2026-11-02.2",
+	"version": "2026-11-02.3",
 	"nativeSentinel": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
 	"acrossHandler": "0x0F7Ae28dE1C8532170AD4ee566B5801485c13a0E",
+	"referral": {
+		"sameChainBps": 0,
+		"crossChainBps": 1,
+		"stablecoinBps": 0
+	},
 	"gas": {
 		"factory": "0x129f934211510b8C0Ac0ef07366f5dba92477c36",
 		"feeRecipient": "0x94a58bf17B32521259F5Ce5A9aa27Ee4a056323B",
@@ -25,6 +30,11 @@ export const ALLOWLIST = {
 			"nativeSymbol": "ETH",
 			"wrappedSymbol": "WETH",
 			"composer": "0x436Ac858fD25706a8380b8AFb38Bc7538B852409",
+			"houseReferrer": "0x69d3661ac6935a33D59b8A6964f0523182A5ae7d",
+			"stablecoins": [
+				"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+				"0xdAC17F958D2ee523a2206206994597C13D831ec7"
+			],
 			"gasDeliveryShell": "0xed10296A4B2F4E51674E4dEdCA1f53Dd9e0259f4",
 			"gasPay": {
 				"routerV3": "0x30809f82f8Df91e976B02F09dc64E0da8eFB1e92",
@@ -120,6 +130,11 @@ export const ALLOWLIST = {
 			"nativeSymbol": "ETH",
 			"wrappedSymbol": "WETH",
 			"composer": "0xAB708AEd94a07B9da06D92b4796988ee6eD0D32c",
+			"houseReferrer": "0x69d3661ac6935a33D59b8A6964f0523182A5ae7d",
+			"stablecoins": [
+				"0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+				"0x94b008aA00579c1307B0EF2c499aD98a8ce58e58"
+			],
 			"gasDeliveryShell": "0xe46A542F395eB64d482BCf504c529cdb05D70878",
 			"gasPay": {
 				"routerV3": "0x34FCCA283211224877F89F814eeA0a3a912fd354",
@@ -215,6 +230,11 @@ export const ALLOWLIST = {
 			"nativeSymbol": "BNB",
 			"wrappedSymbol": "WBNB",
 			"composer": "0xE242F3DeB6B8d9e76e93b0bf5e461B12a722e86E",
+			"houseReferrer": "0x69d3661ac6935a33D59b8A6964f0523182A5ae7d",
+			"stablecoins": [
+				"0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+				"0x55d398326f99059fF775485246999027B3197955"
+			],
 			"gasDeliveryShell": "0xe648D17e146C736A7296BA72260fB2ed5bb58c99",
 			"gasPay": null,
 			"targets": {
@@ -299,6 +319,11 @@ export const ALLOWLIST = {
 			"nativeSymbol": "POL",
 			"wrappedSymbol": "WPOL",
 			"composer": "0x6Cbc5c7AA249EDD719001786b6e0a07D44027693",
+			"houseReferrer": "0x69d3661ac6935a33D59b8A6964f0523182A5ae7d",
+			"stablecoins": [
+				"0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+				"0xc2132D05D31c914a87C6611C10748AEb04B58e8F"
+			],
 			"gasDeliveryShell": "0x02ED7CD8D60768797328B098ce0df2fa99db6f23",
 			"gasPay": {
 				"routerV3": "0xEa0E8caE2dba07D3BC828f42fd6219fF93ddCe97",
@@ -394,6 +419,11 @@ export const ALLOWLIST = {
 			"nativeSymbol": "ETH",
 			"wrappedSymbol": "WETH",
 			"composer": "0x58b73b40b5ED797833955397dF989AA2DEdD50A4",
+			"houseReferrer": "0x69d3661ac6935a33D59b8A6964f0523182A5ae7d",
+			"stablecoins": [
+				"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+				"0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2"
+			],
 			"gasDeliveryShell": "0x3A4569133c21013bbBc99a733FB891A7fffafD9a",
 			"gasPay": {
 				"routerV3": "0x545fef65c37ECEE32309d879ABafaa959E9F114C",
@@ -486,6 +516,11 @@ export const ALLOWLIST = {
 			"nativeSymbol": "ETH",
 			"wrappedSymbol": "WETH",
 			"composer": "0xe484191bfF3e4DED3520d1D8e0fcf098CAef4cE4",
+			"houseReferrer": "0x69d3661ac6935a33D59b8A6964f0523182A5ae7d",
+			"stablecoins": [
+				"0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+				"0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9"
+			],
 			"gasDeliveryShell": "0x02ED7CD8D60768797328B098ce0df2fa99db6f23",
 			"gasPay": {
 				"routerV3": "0xEa0E8caE2dba07D3BC828f42fd6219fF93ddCe97",
