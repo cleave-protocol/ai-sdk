@@ -111,8 +111,9 @@ this package:
   sends to the planned chain and pays the requested recipient where its
   calldata names one; refunds go to the wallet. Any call before it is an
   approve of the sell token to that contract for exactly what the last
-  call pulls. The amount sold is the requested amount, and the native
-  value is what that amount and the listed native messaging fee need.
+  call pulls. For USDC and the chain's native or wrapped native coin, the
+  amount sold is the requested amount. The native value is what the
+  native amount sold and the Stargate native messaging fee need.
 - `getGas`: the authorization is a USDC `ReceiveWithAuthorization` from
   the wallet on the paying chain. The order carries the requested amount,
   recipient and refund address, the pinned contracts, rail and fee
@@ -132,7 +133,8 @@ this:
 }
 ```
 
-A plan or offer that passes is returned with only its documented fields.
+A plan or offer that passes is returned with only its documented
+top-level fields.
 
 What these checks do not cover:
 
@@ -145,6 +147,10 @@ What these checks do not cover:
 - When `sellToken` is a symbol other than USDC or the chain's native or
   wrapped native coin, the API resolves it to an address. Check
   `send.token` before signing.
+- For any other sell token, given by symbol or by address, the package
+  does not know its decimals, so the amount in the approve and the
+  calldata is not checked against the request. Check the approve amount
+  and `pullsAtMost` before signing.
 - `next` and the notices are text from the API.
 
 After Cleave redeploys a contract, plans that use it fail these checks
@@ -253,8 +259,9 @@ cleaveTools({
 
 ## Errors
 
-A refusal from the API comes back as the tool's result with only its
-`apiVersion`, `requestId` and `error` fields, so the model can read it:
+From `planSwap` and `getGas`, a refusal from the API comes back as the
+tool's result with only its `apiVersion`, `requestId` and `error` fields,
+so the model can read it. `trackSwap` and `findToken` return it unchanged:
 
 ```json
 {

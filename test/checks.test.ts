@@ -14,6 +14,7 @@ interface Vector {
 	tool: "plan_swap" | "get_gas";
 	request: Record<string, unknown>;
 	response: Record<string, unknown>;
+	context?: { nowSec?: number };
 	expect: Verdict;
 }
 
@@ -21,7 +22,7 @@ const file = JSON.parse(readFileSync(new URL("./fixtures/vectors.json", import.m
 const vectors = file.vectors;
 
 function verdict(v: Vector): Verdict {
-	const out = v.tool === "plan_swap" ? screenPlanSwap(v.request as PlanSwapInput, v.response) : screenGetGas(v.request as GetGasInput, v.response);
+	const out = v.tool === "plan_swap" ? screenPlanSwap(v.request as PlanSwapInput, v.response) : screenGetGas(v.request as GetGasInput, v.response, v.context?.nowSec);
 	const error = out.error as { code?: unknown; message?: unknown } | undefined;
 	if (error?.code === "address_not_allowed" && typeof error.message === "string") {
 		expect(error.message).not.toContain("malformed");

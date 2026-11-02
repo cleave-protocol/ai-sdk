@@ -17,6 +17,7 @@ interface ChainEntry {
 	composer: string;
 	houseReferrer: string;
 	stablecoins: readonly string[];
+	stargateRailId: string;
 	gasDeliveryShell: string;
 	gasPay: { routerV3: string; acrossUsdcAdapter: string; railId: string } | null;
 	targets: Record<string, { role: string; selectors: Record<string, string> }>;
@@ -31,6 +32,7 @@ interface Chain {
 	composer: string;
 	houseReferrer: string;
 	stablecoins: Set<string>;
+	stargateRailId: string;
 	deliveryShell: string;
 	gasPay: { routerV3: string; acrossUsdcAdapter: string; railId: string } | null;
 	targets: Map<string, { role: string; selectors: Set<string> }>;
@@ -66,6 +68,7 @@ const CHAINS = new Map<number, Chain>(
 			composer: low(c.composer),
 			houseReferrer: low(c.houseReferrer),
 			stablecoins: new Set(c.stablecoins.map(low)),
+			stargateRailId: low(c.stargateRailId),
 			deliveryShell: low(c.gasDeliveryShell),
 			gasPay: c.gasPay === null ? null : { routerV3: low(c.gasPay.routerV3), acrossUsdcAdapter: low(c.gasPay.acrossUsdcAdapter), railId: low(c.gasPay.railId) },
 			targets: new Map(Object.entries(c.targets).map(([a, t]) => [low(a), { role: t.role, selectors: new Set(Object.keys(t.selectors)) }])),
@@ -105,6 +108,8 @@ const PULLS: Readonly<Record<string, { token: number; pulled: readonly number[] 
 };
 const AMOUNT_IN: Readonly<Record<string, number>> = { [SWAP]: 2, [MEASURED]: 2, [CROSS]: 2, [CROSS_NATIVE]: 2, [BRIDGE]: 1, [SPOKE_DEPOSIT]: 4, [DEPOSIT_NATIVE]: 4, [WITHDRAW]: 0 };
 const REFERRAL: Readonly<Record<string, readonly [number, number]>> = { [SWAP]: [6, 7], [MEASURED]: [6, 7], [CROSS]: [6, 7], [CROSS_NATIVE]: [6, 7], [BRIDGE]: [7, 8] };
+const NATIVE_TOKEN: Readonly<Record<string, number>> = { [SWAP]: 0, [MEASURED]: 0, [CROSS]: 0, [CROSS_NATIVE]: 0, [DEPOSIT_NATIVE]: 3 };
+const RAIL_WORD: Readonly<Record<string, number>> = { [CROSS]: 12, [CROSS_NATIVE]: 12, [BRIDGE]: 2 };
 const MIN_OUT: Readonly<Record<string, readonly number[]>> = { [SWAP]: [3], [MEASURED]: [3, 10], [CROSS]: [3, 16], [CROSS_NATIVE]: [3, 16], [BRIDGE]: [6], [SPOKE_DEPOSIT]: [5], [DEPOSIT_NATIVE]: [6] };
 
 type FieldType = "uint" | "uint8" | "address" | "bytes32";
@@ -277,8 +282,8 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 		const send = object(body.send, "P3", "send");
 		if (!sameChain(send.chainId, fromChainId)) fail("P3", "send is on another chain");
 		const token = address(send.token, "P3", "send.token");
-		const sellToken = request.sellToken;
-		const pinned = ADDRESS.test(sellToken) ? low(sellToken) : (chain.symbols.get(low(sellToken.trim())) ?? null);
+		const sellToken = request.sellToken.trim();
+		const pinned = ADDRESS.test(sellToken) ? low(sellToken) : (chain.symbols.get(low(sellToken)) ?? null);
 		if (pinned !== null && pinned !== token) fail("P3", "send.token is not the sell token");
 		if (normalDecimal(send.amount, "P3", "send.amount") !== normalDecimal(request.amount, "P3", "amount")) fail("P3", "send.amount is not the requested amount");
 		const native = token === NATIVE;
@@ -303,12 +308,12 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 			if (selector === WITHDRAW ? main.to !== token : !native) fail("P4", "the main call spends another token");
 		} else if (!native) {
 			if (wordAddress(main.data, pulls.token, "P4", "token") !== token) fail("P4", "the main call spends another token");
-			if (last !== undefined) {
-				const pulled = pulls.pulled.map((k) => wordInt(main.data, k, "P4", "amount")).reduce((a, b) => (a > b ? a : b));
-				if (pulled !== last) fail("P4", "the main call pulls another amount than approved");
-				if (pulled > 2n * wordInt(main.data, AMOUNT_IN[selector] as number, "P4", "amountIn")) fail("P4", "the main call pulls more than twice its input");
-			}
+			const pulled = pulls.pulled.map((k) => wordInt(main.data, k, "P4", "amount")).reduce((a, b) => (a > b ? a : b));
+			if (last !== undefined && pulled !== last) fail("P4", "the main call pulls another amount than approved");
+			if (pulled > 2n * wordInt(main.data, AMOUNT_IN[selector] as number, "P4", "amountIn")) fail("P4", "the main call pulls more than twice its input");
 		}
+		const wrappedWord = NATIVE_TOKEN[selector];
+		if (native && wrappedWord !== undefined && wordAddress(main.data, wrappedWord, "P4", "token") !== chain.wrappedNative) fail("P4", "the main call spends another token");
 		const decimals = native || token === chain.wrappedNative ? 18 : token === chain.usdc ? chain.usdcDecimals : null;
 		const inWord = AMOUNT_IN[selector];
 		if (decimals !== null && inWord !== undefined && wordInt(main.data, inWord, "P4", "amountIn") !== units(request.amount, decimals, "P4", "amount")) fail("P4", "the main call sells another amount than requested");
@@ -317,10 +322,11 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 		at("P5");
 		const fees = body.fees === undefined ? [] : Array.isArray(body.fees) ? (body.fees as unknown[]) : fail("P5", "fees are malformed");
 		let value = native ? units(send.amount, 18, "P5", "send.amount") : 0n;
-		for (const f of fees) {
-			const fee = object(f, "P5", "fee");
-			if (fee.kind !== "native_messaging") continue;
-			if (target.role !== "router_v3") fail("P5", "only the router takes a native messaging fee");
+		const messaging = fees.map((f) => object(f, "P5", "fee")).filter((f) => f.kind === "native_messaging");
+		if (messaging.length > 1) fail("P5", "more than one native messaging fee");
+		for (const fee of messaging) {
+			const railWord = RAIL_WORD[selector];
+			if (railWord === undefined || `0x${word(main.data, railWord, "P5", "railId")}` !== chain.stargateRailId) fail("P5", "only the Stargate rail takes a native messaging fee");
 			value += units(fee.amount, 18, "P5", "fee amount");
 		}
 		if (main.value !== value) fail("P5", "the main call sends another native value");
@@ -332,8 +338,8 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 			const house: [string, bigint] = [chain.houseReferrer, BigInt(ALLOWLIST.referral.crossChainBps)];
 			const dst = CHAINS.get(toChainId);
 			const receive = isObject(body.receive) ? body.receive : null;
-			const buyToken = request.buyToken;
-			const tokenOut = typeof receive?.token === "string" && ADDRESS.test(receive.token) ? low(receive.token) : ADDRESS.test(buyToken) ? low(buyToken) : (dst?.symbols.get(low(buyToken.trim())) ?? null);
+			const buyToken = request.buyToken.trim();
+			const tokenOut = typeof receive?.token === "string" && ADDRESS.test(receive.token) ? low(receive.token) : ADDRESS.test(buyToken) ? low(buyToken) : (dst?.symbols.get(low(buyToken)) ?? null);
 			const stableIn = chain.stablecoins.has(token);
 			const allowed = SAME_CHAIN.has(selector) ? [free] : !stableIn ? [house] : tokenOut === null ? [free, house] : [dst?.stablecoins.has(tokenOut) === true ? free : house];
 			if (!allowed.some(([a, b]) => a === referrer && b === bps)) fail("P5", "the referral fee goes to another address or has another size");
@@ -406,7 +412,9 @@ function encodeOrder(order: Body, fields: readonly [string, FieldType][]): strin
 
 const toDst = (amount: bigint, from: number, to: number): bigint => (to >= from ? amount * 10n ** BigInt(to - from) : amount / 10n ** BigInt(from - to));
 
-export function checkGetGas(request: GetGasInput, body: Record<string, unknown>): CheckResult {
+const GAS_SKEW_SEC = 120;
+
+export function checkGetGas(request: GetGasInput, body: Record<string, unknown>, nowSec: number = Math.floor(Date.now() / 1000)): CheckResult {
 	return guard((at) => {
 		if (request.offer !== undefined) return;
 
@@ -439,7 +447,9 @@ export function checkGetGas(request: GetGasInput, body: Record<string, unknown>)
 		const amount = units(request.amount, payDecimals, "G2", "amount");
 		if (integer(order.amount, "G2", "order.amount") !== amount) fail("G2", "the order amount is not the requested amount");
 		if (message !== null && integer(message.value, "G2", "message.value") !== amount) fail("G2", "the authorization moves another amount");
-		if (message !== null && integer(message.validBefore, "G2", "validBefore") > integer(order.deadline, "G2", "order.deadline")) fail("G2", "the authorization outlives the order");
+		const deadline = integer(order.deadline, "G2", "order.deadline");
+		if (message !== null && integer(message.validBefore, "G2", "validBefore") > deadline) fail("G2", "the authorization outlives the order");
+		if (deadline > BigInt(nowSec + (payChainId === chainId && payChainId !== 1 ? 900 : 1200) + GAS_SKEW_SEC)) fail("G2", "the order deadline is too far away");
 		if (integer(order.chainId, "G2", "order.chainId") !== BigInt(payChainId)) fail("G2", "the order is on another chain");
 		if (address(order.token, "G2", "order.token") !== usdc) fail("G2", "the order takes another token");
 		const recipient = address(request.recipient, "G2", "recipient");
@@ -529,10 +539,10 @@ export function screenPlanSwap(request: PlanSwapInput, body: Record<string, unkn
 	return out;
 }
 
-export function screenGetGas(request: GetGasInput, body: Record<string, unknown>): Record<string, unknown> {
+export function screenGetGas(request: GetGasInput, body: Record<string, unknown>, nowSec?: number): Record<string, unknown> {
 	const refusal = apiRefusal(body);
 	if (refusal !== null) return refusal;
-	const result = checkGetGas(request, body);
+	const result = checkGetGas(request, body, nowSec);
 	if (!result.ok) return addressRefusal(result.message);
 	if (request.offer !== undefined) return pick(body, SUBMIT_KEYS);
 	const out = pick(body, OFFER_KEYS);
