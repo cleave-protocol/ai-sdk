@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
+import { CHAIN_IDS } from "./chains.js";
 
-export const CHAIN_IDS = [1, 10, 56, 137, 8453, 42161] as const;
+export { CHAIN_IDS };
 
 const chain = (description: string) => z.literal(CHAIN_IDS).meta({ type: "integer" }).describe(description);
 const address = (description: string) => z.string().regex(/^0x[0-9a-fA-F]{40}$/).describe(description);
@@ -46,7 +47,4 @@ export const getGasInput = z.strictObject({
 	signature: z.string().regex(/^0x[0-9a-fA-F]+$/).describe("The wallet's signature of the offer's typedData (second call)").optional(),
 });
 
-export type PlanSwapInput = z.infer<typeof planSwapInput>;
-export type TrackSwapInput = z.infer<typeof trackSwapInput>;
-export type FindTokenInput = z.infer<typeof findTokenInput>;
-export type GetGasInput = z.infer<typeof getGasInput>;
+export type { FindTokenInput, GetGasInput, PlanSwapInput, TrackSwapInput } from "./types.js";

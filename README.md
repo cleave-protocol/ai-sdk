@@ -167,6 +167,46 @@ can carry fields the checks do not read.
 
 Do not pair these tools with a wallet that signs without a human looking.
 
+## Without the AI SDK
+
+`@cleave-protocol/ai-sdk/core` has the API client and the address checks
+without the tools. It imports neither `ai` nor `zod`, so it fits agent
+frameworks that bring their own tool layer, and installs alone:
+
+```sh
+npm install @cleave-protocol/ai-sdk
+```
+
+```ts
+import { callTool, screenPlanSwap } from '@cleave-protocol/ai-sdk/core';
+import type { PlanSwapInput } from '@cleave-protocol/ai-sdk/core';
+
+const request: PlanSwapInput = {
+  fromChainId: 8453,
+  sellToken: 'USDC',
+  buyToken: 'WETH',
+  amount: '25',
+  wallet: '0x00000000000000000000000000000000000A11cE',
+};
+const plan = screenPlanSwap(request, await callTool('plan_swap', request, {}));
+```
+
+It exports `callTool`, `CleaveApiError`, `DEFAULT_BASE_URL`,
+`DEFAULT_TIMEOUT_MS`, `checkPlanSwap`, `checkGetGas`, `screenPlanSwap`,
+`screenGetGas`, `CHAIN_IDS` and the input types.
+
+- `callTool(endpoint, input, options, abortSignal?)` posts `input` to
+  `plan_swap`, `track_swap`, `find_token` or `get_gas` and returns the
+  answer as described in [Errors](#errors). It does not validate `input`;
+  check it with your framework's schema first.
+- `options` takes `baseUrl`, `apiKey`, `timeoutMs` and `fetch`, as in
+  [Options](#options).
+- Pass every answer through `screenPlanSwap` or `screenGetGas` before it
+  reaches a model or a wallet.
+
+The main entry still needs `ai` and `zod`, installed as in
+[Install](#install).
+
 ## Gas top-ups
 
 `getGas` takes two calls.

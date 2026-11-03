@@ -1,7 +1,7 @@
 import { keccak_256 } from "@noble/hashes/sha3";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { ALLOWLIST } from "./allowlist.js";
-import type { GetGasInput, PlanSwapInput } from "./schemas.js";
+import type { GetGasInput, PlanSwapInput } from "./types.js";
 
 export type CheckRule = "P1" | "P2" | "P3" | "P4" | "P5" | "P6" | "G1" | "G2" | "G3" | "G4";
 export type CheckResult = { ok: true } | { ok: false; rule: CheckRule; message: string };
@@ -332,7 +332,7 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 		if (messaging.length > 1) fail("P5", "more than one native messaging fee");
 		for (const fee of messaging) {
 			const railWord = RAIL_WORD[selector];
-			if (railWord === undefined || `0x${word(main.data, railWord, "P5", "railId")}` !== chain.stargateRailId) fail("P5", "only the Stargate rail takes a native messaging fee");
+			if (railWord === undefined || `0x${word(main.data, railWord, "P5", "railId")}` !== chain.stargateRailId) fail("P5", "this route takes no native messaging fee");
 			value += units(fee.amount, 18, "P5", "fee amount");
 		}
 		if (main.value !== value) fail("P5", "the main call sends another native value");
