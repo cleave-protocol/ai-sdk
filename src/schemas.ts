@@ -1,5 +1,5 @@
 import { z } from "zod/v4";
-import { CHAIN_IDS } from "./chains.js";
+import { CHAIN_IDS } from "./core.js";
 
 export { CHAIN_IDS };
 
@@ -47,4 +47,4 @@ export const getGasInput = z.strictObject({
 	signature: z.string().regex(/^0x[0-9a-fA-F]+$/).describe("The wallet's signature of the offer's typedData (second call)").optional(),
 });
 
-export type { FindTokenInput, GetGasInput, PlanSwapInput, TrackSwapInput } from "./types.js";
+export type { FindTokenInput, GetGasInput, PlanSwapInput, TrackSwapInput } from "./core.js";

@@ -1,8 +1,7 @@
 import { tool } from "ai";
 import type { Tool } from "ai";
-import { screenGetGas, screenPlanSwap } from "./checks.js";
-import { callTool } from "./client.js";
-import type { CleaveResult, CleaveToolsOptions } from "./client.js";
+import { callTool, screenGetGas, screenPlanSwap } from "./core.js";
+import type { CleaveResult, CleaveToolsOptions } from "./core.js";
 import { findTokenInput, getGasInput, planSwapInput, trackSwapInput } from "./schemas.js";
 import type { FindTokenInput, GetGasInput, PlanSwapInput, TrackSwapInput } from "./schemas.js";
 

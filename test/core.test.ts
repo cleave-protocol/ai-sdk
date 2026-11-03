@@ -29,6 +29,14 @@ describe("core entry", () => {
 		expect(specs).toContain("zod/v4");
 	});
 
+	it("the main entry reaches the shared code only through the core entry", () => {
+		const direct = (name: string) => {
+			const text = readFileSync(new URL(`../src/${name}`, import.meta.url), "utf8");
+			return [...text.matchAll(/^(?:import|export)\s+(?!type\b)[^;]*?\sfrom\s+"(\.[^"]+)";/gms)].map((m) => m[1] as string);
+		};
+		for (const name of ["index.ts", "tools.ts", "schemas.ts"]) expect(direct(name).filter((s) => !["./core.js", "./tools.js", "./schemas.js"].includes(s))).toEqual([]);
+	});
+
 	it("exports the client, checks and chain ids that the root entry exports", () => {
 		expect(Object.keys(core).sort()).toEqual(["CHAIN_IDS", "CleaveApiError", "DEFAULT_BASE_URL", "DEFAULT_TIMEOUT_MS", "callTool", "checkGetGas", "checkPlanSwap", "screenGetGas", "screenPlanSwap"]);
 		for (const name of ["CHAIN_IDS", "CleaveApiError", "DEFAULT_BASE_URL", "DEFAULT_TIMEOUT_MS", "checkGetGas", "checkPlanSwap", "screenGetGas", "screenPlanSwap"] as const) expect(core[name]).toBe(root[name]);
