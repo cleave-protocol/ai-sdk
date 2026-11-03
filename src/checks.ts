@@ -259,7 +259,7 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 	return guard((at) => {
 		at("P1");
 		const fromChainId = request.fromChainId;
-		const toChainId = request.toChainId ?? fromChainId;
+		const toChainId = request.toChainId === undefined ? fromChainId : request.toChainId;
 		const wallet = address(request.wallet, "P1", "wallet");
 		const calls = Array.isArray(body.calls) ? (body.calls as unknown[]) : fail("P1", "calls are missing");
 		if (body.blocked === true) {
@@ -350,7 +350,10 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 			const dst = CHAINS.get(toChainId);
 			const receive = isObject(body.receive) ? body.receive : null;
 			const buyToken = request.buyToken.trim();
-			const tokenOut = typeof receive?.token === "string" && ADDRESS.test(receive.token) ? low(receive.token) : ADDRESS.test(buyToken) ? low(buyToken) : (dst?.symbols.get(low(buyToken)) ?? null);
+			const requested = ADDRESS.test(buyToken) ? low(buyToken) : (dst?.symbols.get(low(buyToken)) ?? null);
+			const shown = typeof receive?.token === "string" && ADDRESS.test(receive.token) ? low(receive.token) : null;
+			if (requested !== null && shown !== null && shown !== requested) fail("P5", "receive.token is not the buy token");
+			const tokenOut = requested ?? shown;
 			const stableIn = chain.stablecoins.has(token);
 			const allowed = SAME_CHAIN.has(selector) ? [free] : !stableIn ? [house] : tokenOut === null ? [free, house] : [dst?.stablecoins.has(tokenOut) === true ? free : house];
 			if (!allowed.some(([a, b]) => a === referrer && b === bps)) fail("P5", "the referral fee goes to another address or has another size");
@@ -442,7 +445,7 @@ const GAS_SKEW_SEC = 120;
 
 export function checkGetGas(request: GetGasInput, body: Record<string, unknown>, nowSec: number = Math.floor(Date.now() / 1000)): CheckResult {
 	return guard((at) => {
-		if (request.offer !== undefined) return;
+		if (request.offer !== undefined && request.offer !== null) return;
 
 		at("G1");
 		const payChainId = request.payChainId ?? fail("G1", "the request has no pay chain");
@@ -571,7 +574,7 @@ export function screenGetGas(request: GetGasInput, body: Record<string, unknown>
 	if (refusal !== null) return refusal;
 	const result = checkGetGas(request, body, nowSec);
 	if (!result.ok) return addressRefusal(result.message);
-	if (request.offer !== undefined) return pick(body, SUBMIT_KEYS);
+	if (request.offer !== undefined && request.offer !== null) return pick(body, SUBMIT_KEYS);
 	const out = pick(body, OFFER_KEYS);
 	if (isObject(body.typedData)) {
 		const t = body.typedData;
