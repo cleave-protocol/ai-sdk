@@ -50,4 +50,4 @@ jobs:
         with:
           name: package
           path: package
-      - run: npm publish package/*.tgz --provenance --access public
+      - run: npm publish ./package/*.tgz --provenance --access public
