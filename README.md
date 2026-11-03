@@ -18,6 +18,10 @@ npm install @cleave-protocol/ai-sdk ai zod
 
 No API key is needed.
 
+Since 0.2.0, `ai` and `zod` are optional peer dependencies, so npm and
+pnpm no longer install them on their own. A project that uses the main
+entry lists both in its own dependencies, as above.
+
 ## Usage
 
 ```ts
@@ -191,18 +195,25 @@ const request: PlanSwapInput = {
 const plan = screenPlanSwap(request, await callTool('plan_swap', request, {}));
 ```
 
-It exports `callTool`, `CleaveApiError`, `DEFAULT_BASE_URL`,
+It exports the values `callTool`, `CleaveApiError`, `DEFAULT_BASE_URL`,
 `DEFAULT_TIMEOUT_MS`, `checkPlanSwap`, `checkGetGas`, `screenPlanSwap`,
-`screenGetGas`, `CHAIN_IDS` and the input types.
+`screenGetGas` and `CHAIN_IDS`, and the types `ChainId`, `CheckResult`,
+`CheckRule`, `CleaveResult`, `CleaveToolsOptions`, `FindTokenInput`,
+`GetGasInput`, `PlanSwapInput`, `ToolEndpoint` and `TrackSwapInput`. They
+are the same objects the main entry exports.
 
 - `callTool(endpoint, input, options, abortSignal?)` posts `input` to
   `plan_swap`, `track_swap`, `find_token` or `get_gas` and returns the
-  answer as described in [Errors](#errors). It does not validate `input`;
-  check it with your framework's schema first.
+  API's JSON body unchanged, refusals included; an HTTP error without a
+  JSON error object comes back as an `http_error` refusal. It throws
+  `CleaveApiError` when the API cannot be reached, does not answer in
+  time, or answers a success status without a JSON object. It does not
+  validate `input`; check it with your framework's schema first.
 - `options` takes `baseUrl`, `apiKey`, `timeoutMs` and `fetch`, as in
   [Options](#options).
-- Pass every answer through `screenPlanSwap` or `screenGetGas` before it
-  reaches a model or a wallet.
+- Pass every `plan_swap` and `get_gas` answer through `screenPlanSwap` or
+  `screenGetGas` before it reaches a model or a wallet. A request whose
+  chain ids are not integers from `CHAIN_IDS` is refused.
 
 The main entry still needs `ai` and `zod`, installed as in
 [Install](#install).
