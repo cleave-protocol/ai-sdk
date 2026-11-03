@@ -245,6 +245,10 @@ function wordAddress(data: string, k: number, rule: CheckRule, what: string): st
 	return w.startsWith("0".repeat(24)) ? `0x${w.slice(24)}` : fail(rule, `${what} is not an address`);
 }
 
+function allowedChain(v: unknown, rule: CheckRule, what: string): number {
+	return typeof v === "number" && Number.isInteger(v) && CHAINS.has(v) ? v : fail(rule, `${what} is not on the allowlist`);
+}
+
 function sameChain(v: unknown, chainId: number): boolean {
 	return (typeof v === "number" && v === chainId) || (typeof v === "string" && DECIMAL_INT.test(v) && BigInt(v) === BigInt(chainId));
 }
@@ -275,7 +279,8 @@ export function checkPlanSwap(request: PlanSwapInput, body: Record<string, unkno
 		const selector = main.data.slice(0, 10);
 
 		at("P2");
-		const chain = CHAINS.get(fromChainId) ?? fail("P2", "the chain is not on the allowlist");
+		const chain = CHAINS.get(allowedChain(fromChainId, "P2", "the chain")) as Chain;
+		allowedChain(toChainId, "P2", "the destination chain");
 		const target = chain.targets.get(main.to) ?? fail("P2", "the main call's target is not on the allowlist");
 		if (!target.selectors.has(selector)) fail("P2", "the main call's function is not allowed on its target");
 		if (SAME_CHAIN.has(selector) !== (toChainId === fromChainId)) fail("P2", "the main call does not fit the route");
@@ -442,8 +447,9 @@ export function checkGetGas(request: GetGasInput, body: Record<string, unknown>,
 		at("G1");
 		const payChainId = request.payChainId ?? fail("G1", "the request has no pay chain");
 		const chainId = request.chainId ?? fail("G1", "the request has no delivery chain");
-		const pay = CHAINS.get(payChainId);
+		const pay = CHAINS.get(allowedChain(payChainId, "G1", "the pay chain"));
 		const gasPay = pay?.gasPay ?? fail("G1", "the pay chain is not on the allowlist");
+		allowedChain(chainId, "G1", "the delivery chain");
 		const usdc = (pay as Chain).usdc;
 		const payDecimals = (pay as Chain).usdcDecimals;
 		const wallet = request.wallet === undefined ? null : address(request.wallet, "G1", "wallet");

@@ -60,6 +60,20 @@ describe("shared vectors", () => {
 	});
 });
 
+describe("refusal messages", () => {
+	it.each([
+		["native messaging fee on a shell swap", "P5: this route takes no native messaging fee"],
+		["toChainId as a string", "P2: the destination chain is not on the allowlist"],
+		["toChainId as a fraction", "P2: the destination chain is not on the allowlist"],
+		["gas chainId as a string", "G1: the delivery chain is not on the allowlist"],
+		["gas payChainId as a string", "G1: the pay chain is not on the allowlist"],
+	])("%s", (name, message) => {
+		const v = vectors.find((x) => x.name === name) as Vector;
+		const r = v.tool === "plan_swap" ? checkPlanSwap(v.request as PlanSwapInput, v.response) : checkGetGas(v.request as GetGasInput, v.response, v.context?.nowSec);
+		expect(r).toEqual({ ok: false, rule: message.slice(0, 2), message });
+	});
+});
+
 describe("pinned allowlist", () => {
 	it("recomputes both clone init code hashes from the templates", () => {
 		for (const kind of ["swap", "cross_chain"] as const) {
