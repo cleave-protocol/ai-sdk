@@ -199,8 +199,13 @@ It exports the values `callTool`, `CleaveApiError`, `DEFAULT_BASE_URL`,
 `DEFAULT_TIMEOUT_MS`, `checkPlanSwap`, `checkGetGas`, `screenPlanSwap`,
 `screenGetGas` and `CHAIN_IDS`, and the types `ChainId`, `CheckResult`,
 `CheckRule`, `CleaveResult`, `CleaveToolsOptions`, `FindTokenInput`,
-`GetGasInput`, `PlanSwapInput`, `ToolEndpoint` and `TrackSwapInput`. They
-are the same objects the main entry exports.
+`GetGasInput`, `PlanSwapInput`, `ToolEndpoint` and `TrackSwapInput`.
+`callTool`, `ChainId` and `ToolEndpoint` are exported by `/core` only; the
+others are the same objects the main entry exports.
+
+Across an ESM `import` and a CommonJS `require` of this package,
+`instanceof CleaveApiError` is not guaranteed, since each format loads
+its own copy; check `error.name === 'CleaveApiError'` instead.
 
 - `callTool(endpoint, input, options, abortSignal?)` posts `input` to
   `plan_swap`, `track_swap`, `find_token` or `get_gas` and returns the

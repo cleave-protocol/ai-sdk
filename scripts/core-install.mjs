@@ -112,6 +112,7 @@ function main(work) {
 	const full = install(work, "full", [tarball, peer("ai"), peer("zod")]);
 	const idCjs = JSON.parse(node(full, ["--input-type=commonjs", "-"], `(async () => {\nconst root = require("${pkg.name}");\nconst core = require("${pkg.name}/core");${identityRun}})().catch((e) => { console.error(e); process.exit(1); });`));
 	const idEsm = JSON.parse(node(full, ["--input-type=module", "-"], `const root = await import("${pkg.name}");\nconst core = await import("${pkg.name}/core");${identityRun}`));
+	const mixed = JSON.parse(node(full, ["--input-type=module", "-"], `import { createRequire } from "node:module";\nconst require = createRequire(${JSON.stringify(join(full, "x.cjs"))});\nconst root = await import("${pkg.name}");\nconst cjsCore = require("${pkg.name}/core");\nconst e = await cjsCore.callTool("find_token", { chainId: 8453, query: "USDC" }, { fetch: async () => new Response("x", { status: 200 }) }).catch((err) => err);\nif (e.name !== "CleaveApiError" || root.CleaveApiError.name !== "CleaveApiError") throw new Error("CleaveApiError is not named");\nconsole.log(JSON.stringify({ name: e.name, instance: e instanceof root.CleaveApiError }));`));
 
 	console.log(`core-install: OK ${pkg.name}@${pkg.version} from ${tarball.split("/").pop()}`);
 	console.log(`  without ai and zod, installed: ${modules.join(", ")}`);
@@ -119,6 +120,7 @@ function main(work) {
 	console.log(`  import("${pkg.name}/core"): ${esm.pass} pass, ${esm.refused} refused`);
 	console.log(`  require("${pkg.name}") in the same install: ${rootLoad}`);
 	console.log(`  with ${peer("ai")} and ${peer("zod")}: the main and core entries share ${idCjs.shared} exports by identity under require and ${idEsm.shared} under import; CleaveApiError from either entry is an instance of the other's`);
+	console.log(`  ESM import of the main entry with a CJS require of /core in one process: error.name is ${mixed.name}; instanceof across the formats is ${mixed.instance}, as the README says`);
 }
 
 const work = mkdtempSync(join(tmpdir(), "cleave-core-install-"));

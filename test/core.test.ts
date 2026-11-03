@@ -42,6 +42,14 @@ describe("core entry", () => {
 		for (const name of ["CHAIN_IDS", "CleaveApiError", "DEFAULT_BASE_URL", "DEFAULT_TIMEOUT_MS", "checkGetGas", "checkPlanSwap", "screenGetGas", "screenPlanSwap"] as const) expect(core[name]).toBe(root[name]);
 	});
 
+	it("names CleaveApiError on the class and on what callTool throws", async () => {
+		expect(new core.CleaveApiError("m", 0).name).toBe("CleaveApiError");
+		const notJson = async () => new Response("not json", { status: 200 });
+		const thrown = await core.callTool("find_token", { chainId: 8453, query: "USDC" }, { fetch: notJson }).catch((e: unknown) => e);
+		expect(thrown).toBeInstanceOf(core.CleaveApiError);
+		expect((thrown as Error).name).toBe("CleaveApiError");
+	});
+
 	it("types the inputs exactly as the schemas parse them", () => {
 		expectTypeOf<z.infer<typeof planSwapInput>>().toEqualTypeOf<PlanSwapInput>();
 		expectTypeOf<z.infer<typeof trackSwapInput>>().toEqualTypeOf<TrackSwapInput>();
