@@ -113,7 +113,7 @@ this package:
   approve of the sell token to that contract for exactly what the last
   call pulls. For USDC and the chain's native or wrapped native coin, the
   amount sold is the requested amount. The native value is what the
-  native amount sold and the Stargate native messaging fee need.
+  native amount sold and the rail's native messaging fee need.
 - `getGas`: the authorization is a USDC `ReceiveWithAuthorization` from
   the wallet on the paying chain. The order carries the requested amount,
   recipient and refund address, the pinned contracts, rail and fee
@@ -140,7 +140,7 @@ What these checks do not cover:
 
 - The price, the route and the amount received.
 - On routes that swap on arrival or pay a fee through the bridge message,
-  the funds go to the Across handler or Cleave's composer, and that
+  the funds go to a bridge message handler or Cleave's composer, and that
   message decides who receives them. These checks do not read it, so a
   compromised API could redirect those funds. Have a person check such a
   plan before signing.
@@ -151,7 +151,7 @@ What these checks do not cover:
   does not know its decimals, so the amount in the approve and the
   calldata is not checked against the request. Check the approve amount
   and `pullsAtMost` before signing.
-- The Stargate native messaging fee is the API's figure. The checks only
+- A native messaging fee is the API's figure. The checks only
   match it with the call's value; nothing bounds it.
 - `next` and the notices are text from the API.
 
